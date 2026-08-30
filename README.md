@@ -1,6 +1,6 @@
 # 単位正方形上の Poisson 方程式
 
-単位正方形上の Dirichlet 問題を、Julia と Rust で同じ格子・同じ右辺に対して解く。
+単位正方形上の Dirichlet 問題を、Julia、Rust、Fortran で同じ格子・同じ右辺に対して解く。
 
 解法は二系統ある。
 5 点差分の **Jacobi 反復**と、同じ差分作用素の固有関数展開である **DST-I**（第一種離散正弦変換）である。
@@ -51,6 +51,7 @@ DST は \(O(N^2\log N)\) である。
 |---|---|---|---|
 | `julia/` | Julia | Jacobi | 境界チェック付きの二重ループ。毎反復 `u .= u_new` でコピーする |
 | `julia_unsafe/` | Julia | Jacobi | `@inbounds`。バッファは入れ替える |
+| `fortran/` | Fortran | Jacobi | 既定では境界チェックなし（`julia_unsafe` 相当）。バッファはポインタの付け替え |
 | `julia_fft/` | Julia | DST-I | FFTW。比較のため FFTW と BLAS は 1 スレッド |
 | `rust/` | Rust | Jacobi | `Vec<f64>` の安全な添字。バッファは `swap`。tenferro は求解後の誤差だけ |
 | `rust_ndarray/` | Rust | Jacobi | `ndarray` のスライスと `Zip` |
@@ -61,6 +62,9 @@ Rust の Jacobi 実装は、求解中は生の配列を回す。
 tenferro のテンソル演算は、誤差の `sub` / `abs` / `reduce_sum` に使う。
 
 `rust/` と `rust_tenferro_unsafe/` は `target-cpu=native` でビルドする。
+
+gfortran は `-fcheck=bounds` を付けない限り添字検査を入れない。
+したがって `gfortran -O3` は、すでに Julia の `@inbounds` と同じ前提である。
 
 ## 実行
 
@@ -83,6 +87,13 @@ cargo run --release --manifest-path rust_tenferro_unsafe/Cargo.toml
 cargo run --release --manifest-path rust_tenferro_fft/Cargo.toml
 ```
 
+Fortran は `gfortran -O3` でビルドする。
+
+```bash
+./fortran/build.sh
+./fortran/poisson
+```
+
 求解時間は標準出力の `time =` 行である。
 図は各ディレクトリに PNG で保存する。
-# poisson_eq_sandbox
+Fortran の図はヒートマップのみである。

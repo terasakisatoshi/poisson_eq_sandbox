@@ -1,0 +1,4 @@
+target/
+fortran/poisson
+*.png
+.DS_Store

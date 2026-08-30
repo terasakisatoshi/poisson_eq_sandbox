@@ -1,0 +1,17 @@
+[package]
+name = "poisson_fft"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+num-complex = "0.4"
+tenferro-runtime = "0.3"
+tenferro-cpu = "0.3"
+tenferro-fft = "0.3"
+plotters = { version = "0.3", default-features = false, features = [
+    "bitmap_backend",
+    "bitmap_encoder",
+    "surface_series",
+    "ttf",
+] }

@@ -1,0 +1,14 @@
+[package]
+name = "poisson-ndarray"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ndarray = "0.16"
+plotters = { version = "0.3", default-features = false, features = [
+    "bitmap_backend",
+    "bitmap_encoder",
+    "surface_series",
+    "ttf",
+] }
