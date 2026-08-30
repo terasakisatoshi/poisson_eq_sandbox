@@ -53,7 +53,7 @@ DST は \(O(N^2\log N)\) である。
 | `julia_unsafe/` | Julia | Jacobi | `@inbounds`。バッファは入れ替える |
 | `fortran/` | Fortran | Jacobi | 既定では境界チェックなし（`julia_unsafe` 相当）。バッファはポインタの付け替え |
 | `julia_fft/` | Julia | DST-I | FFTW。比較のため FFTW と BLAS は 1 スレッド |
-| `rust/` | Rust | Jacobi | `Vec<f64>` の安全な添字。バッファは `swap`。tenferro は求解後の誤差だけ |
+| `rust_tenferro/` | Rust | Jacobi | `Vec<f64>` の安全な添字。バッファは `swap`。tenferro は求解後の誤差だけ |
 | `rust_ndarray/` | Rust | Jacobi | `ndarray` のスライスと `Zip` |
 | `rust_tenferro_unsafe/` | Rust | Jacobi | 境界チェックなしのポインタ読み書き。tenferro は求解後の誤差だけ |
 | `rust_tenferro_fft/` | Rust | DST-I | 奇関数延長の軸方向 FFT（tenferro-fft） |
