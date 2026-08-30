@@ -54,6 +54,7 @@ DST は \(O(N^2\log N)\) である。
 | `fortran/` | Fortran | Jacobi | 既定では境界チェックなし（`julia_unsafe` 相当）。バッファはポインタの付け替え |
 | `julia_fft/` | Julia | DST-I | FFTW。比較のため FFTW と BLAS は 1 スレッド |
 | `rust_tenferro/` | Rust | Jacobi | `Vec<f64>` の安全な添字。バッファは `swap`。tenferro は求解後の誤差だけ |
+| `rust_hataori/` | Rust | Jacobi | `rust_tenferro` と同じステンシル。内部を 2×2 の四象限に分け、[Hataori](https://github.com/shinaoka/hataori-rs) の `map_in`（Rayon、`LocalMode::Outer`）で並列更新 |
 | `rust_ndarray/` | Rust | Jacobi | `ndarray` のスライスと `Zip` |
 | `rust_tenferro_unsafe/` | Rust | Jacobi | 境界チェックなしのポインタ読み書き。tenferro は求解後の誤差だけ |
 | `rust_tenferro_fft/` | Rust | DST-I | 奇関数延長の軸方向 FFT（tenferro-fft） |
@@ -61,7 +62,7 @@ DST は \(O(N^2\log N)\) である。
 Rust の Jacobi 実装は、求解中は生の配列を回す。
 tenferro のテンソル演算は、誤差の `sub` / `abs` / `reduce_sum` に使う。
 
-`rust/` と `rust_tenferro_unsafe/` は `target-cpu=native` でビルドする。
+`rust_tenferro/`、`rust_hataori/`、`rust_tenferro_unsafe/` は `target-cpu=native` でビルドする。
 
 gfortran は `-fcheck=bounds` を付けない限り添字検査を入れない。
 したがって `gfortran -O3` は、すでに Julia の `@inbounds` と同じ前提である。
@@ -83,8 +84,12 @@ Rust は各 crate のディレクトリでリリースビルドする。
 ```bash
 cargo run --release --manifest-path rust/Cargo.toml
 cargo run --release --manifest-path rust_ndarray/Cargo.toml
+cargo run --release --manifest-path rust_tenferro/Cargo.toml
 cargo run --release --manifest-path rust_tenferro_unsafe/Cargo.toml
 cargo run --release --manifest-path rust_tenferro_fft/Cargo.toml
+cargo run --release --manifest-path rust_hataori/Cargo.toml
+# スレッド数は引数または HATAORI_THREADS（省略時は 4。領域は常に 2×2）
+cargo run --release --manifest-path rust_hataori/Cargo.toml -- 4
 ```
 
 Fortran は `gfortran -O3` でビルドする。
