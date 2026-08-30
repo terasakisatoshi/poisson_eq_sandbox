@@ -5,9 +5,14 @@ edition = "2021"
 publish = false
 
 [dependencies]
+pulp = "0.22.3"
 plotters = { version = "0.3", default-features = false, features = [
     "bitmap_backend",
     "bitmap_encoder",
     "surface_series",
     "ttf",
 ] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

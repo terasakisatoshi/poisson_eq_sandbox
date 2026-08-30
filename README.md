@@ -57,13 +57,15 @@ DST は \(O(N^2\log N)\) である。
 | `rust_tenferro_opt/` | Rust | Jacobi | 格子は `TypedTensor` のまま。[tenferro-rs#1736](https://github.com/tensor4all/tenferro-rs/issues/1736) の列優先ホストビューで一度検証し、内側は軸 0 のレーンを回す |
 | `rust_hataori/` | Rust | Jacobi | `rust_tenferro` と同じステンシル。内部を 2×2 の四象限に分け、[Hataori](https://github.com/shinaoka/hataori-rs) の `map_in`（Rayon、`LocalMode::Outer`）で並列更新 |
 | `rust_ndarray/` | Rust | Jacobi | `ndarray` のスライスと `Zip` |
-| `rust_unsafe/` | Rust | Jacobi | 境界チェックなしのポインタ読み書き。バッファは `swap` |
+| `rust_unsafe/` | Rust | Jacobi | `pulp` でNEON/x86 SIMD/Scalarへdispatch。4本の独立SIMDチェーンと2反復の行パイプライン。更新幅は1000反復ごとに還元 |
 | `rust_tenferro_fft/` | Rust | DST-I | 奇関数延長の軸方向 FFT（tenferro-fft） |
 
 `rust_tenferro/` と `rust_hataori/` は、求解中は `Vec<f64>` を回し、誤差の `sub` / `abs` / `reduce_sum` に tenferro を使う。
 `rust_tenferro_opt/` は求解中も `TypedTensor` を保持し、検証済み列優先ビュー経由で同じステンシルを書く。
+`rust_unsafe/` の2反復パイプラインは、1反復目で行 `j+1` を生成した直後、以後参照されない旧行 `j` に2反復目の結果を書き戻す。各反復の数値結果は通常のJacobi反復と同一である。
+`rust_unsafe/` のSIMD幅と命令セットは、`pulp::Arch` が実行時に選択する。
 
-`rust_tenferro/`、`rust_tenferro_opt/`、`rust_hataori/`、`rust_unsafe/` は `target-cpu=native` でビルドする。
+`rust_tenferro/`、`rust_tenferro_opt/`、`rust_hataori/` は `target-cpu=native` でビルドする。
 
 gfortran は `-fcheck=bounds` を付けない限り添字検査を入れない。
 したがって `gfortran -O3` は、すでに Julia の `@inbounds` と同じ前提である。
