@@ -5,8 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-tenferro-runtime = "0.3"
-tenferro-cpu = "0.3"
 plotters = { version = "0.3", default-features = false, features = [
     "bitmap_backend",
     "bitmap_encoder",

@@ -1,8 +1,7 @@
 //! 2-D Poisson equation on the unit square, solved by Jacobi iteration.
 //!
-//! Same problem and algorithm as `julia/poisson.jl`. The hot loop is an
-//! `unsafe` pointer stencil over `Vec<f64>`; tenferro is used only for the
-//! error metrics after the solve.
+//! Same problem and algorithm as `julia_unsafe/poisson.jl`. The hot loop is
+//! an `unsafe` pointer stencil over `Vec<f64>`.
 //!
 //! ```text
 //!   -Δu = f    in Ω = (0,1) × (0,1)
@@ -18,8 +17,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use plotters::prelude::*;
-use tenferro_cpu::CpuBackend;
-use tenferro_runtime::prelude::*;
 
 fn u_exact(x: f64, y: f64) -> f64 {
     (PI * x).sin() * (PI * y).sin()
@@ -29,7 +26,7 @@ fn f(x: f64, y: f64) -> f64 {
     2.0 * PI * PI * (PI * x).sin() * (PI * y).sin()
 }
 
-/// Column-major index for a compact `[n, n]` tensor (leftmost axis fastest).
+/// Column-major index for a compact `[n, n]` buffer (leftmost axis fastest).
 fn idx(i: usize, j: usize, n: usize) -> usize {
     i + n * j
 }
@@ -296,29 +293,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Jacobi iterations = {iterations}");
     println!("final update error = {update_error:.6e}");
 
-    let u = TypedTensor::<f64>::from_vec_col_major(vec![N, N], u)?;
-
-    let mut ue = TypedTensor::<f64>::zeros(vec![N, N])?;
-    {
-        let data = ue.host_data_mut()?;
-        for j in 0..N {
-            for i in 0..N {
-                data[idx(i, j, N)] = u_exact(xs[i], xs[j]);
-            }
+    let mut ue = vec![0.0; N * N];
+    for j in 0..N {
+        for i in 0..N {
+            ue[idx(i, j, N)] = u_exact(xs[i], xs[j]);
         }
     }
 
-    let mut backend = CpuBackend::new();
-    let diff = u.sub(&ue, &mut backend)?;
-    let abs_err = diff.abs(&mut backend)?;
-    let sq = diff.mul(&diff, &mut backend)?;
-    let sum_sq = sq.reduce_sum(&[0, 1], &mut backend)?;
-    let max_error = abs_err
-        .as_slice()?
-        .iter()
-        .copied()
-        .fold(0.0_f64, f64::max);
-    let l2_error = (sum_sq.as_slice()?[0] * h * h).sqrt();
+    let mut abs_err = vec![0.0; N * N];
+    let mut max_error = 0.0_f64;
+    let mut sum_sq = 0.0_f64;
+    for k in 0..N * N {
+        let d = u[k] - ue[k];
+        abs_err[k] = d.abs();
+        max_error = max_error.max(abs_err[k]);
+        sum_sq += d * d;
+    }
+    let l2_error = (sum_sq * h * h).sqrt();
 
     println!();
     println!("max error = {max_error:.6e}");
@@ -326,16 +317,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("poisson_jacobi.png");
     let out_str = out.to_string_lossy();
-    save_plot(
-        &out_str,
-        &xs,
-        u.as_slice()?,
-        ue.as_slice()?,
-        abs_err.as_slice()?,
-        N,
-        h,
-        max_error,
-    )?;
+    save_plot(&out_str, &xs, &u, &ue, &abs_err, N, h, max_error)?;
     println!("saved {out_str}");
 
     Ok(())
