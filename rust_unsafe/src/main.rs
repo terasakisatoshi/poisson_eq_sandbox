@@ -66,29 +66,23 @@ fn viridis(t: f64) -> RGBColor {
 }
 
 #[inline(always)]
-unsafe fn jacobi_row<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
+fn jacobi_row<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
     simd: S,
-    u_ptr: *const f64,
-    out: *mut f64,
-    rhs_ptr: *const f64,
+    u: &[f64],
+    out: &mut [f64],
+    rhs: &[f64],
     j: usize,
     h2: f64,
 ) -> f64 {
     let col = j * N;
     let width = N - 2;
-    let u_j = u_ptr.add(col);
-    let u_jm = u_ptr.add(col - N);
-    let u_jp = u_ptr.add(col + N);
-    let rhs_j = rhs_ptr.add(col);
-    let dst = out.add(col);
-
-    let left = std::slice::from_raw_parts(u_j, width);
-    let center = std::slice::from_raw_parts(u_j.add(1), width);
-    let right = std::slice::from_raw_parts(u_j.add(2), width);
-    let below = std::slice::from_raw_parts(u_jm.add(1), width);
-    let above = std::slice::from_raw_parts(u_jp.add(1), width);
-    let rhs = std::slice::from_raw_parts(rhs_j.add(1), width);
-    let output = std::slice::from_raw_parts_mut(dst.add(1), width);
+    let left = &u[col..col + width];
+    let center = &u[col + 1..col + 1 + width];
+    let right = &u[col + 2..col + 2 + width];
+    let below = &u[col - N + 1..col - N + 1 + width];
+    let above = &u[col + N + 1..col + N + 1 + width];
+    let rhs = &rhs[col + 1..col + 1 + width];
+    let output = &mut out[col + 1..col + 1 + width];
 
     let (left_v, left_tail) = S::as_simd_f64s(left);
     let (center_v, center_tail) = S::as_simd_f64s(center);
@@ -112,18 +106,15 @@ unsafe fn jacobi_row<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
     macro_rules! point_vector {
         ($k:expr, $error:ident) => {{
             let k = $k;
-            let mut value = simd.add_f64s(*right_v.get_unchecked(k), *left_v.get_unchecked(k));
-            value = simd.add_f64s(value, *above_v.get_unchecked(k));
-            value = simd.add_f64s(value, *below_v.get_unchecked(k));
-            value = simd.add_f64s(value, simd.mul_f64s(*rhs_v.get_unchecked(k), h2v));
+            let mut value = simd.add_f64s(right_v[k], left_v[k]);
+            value = simd.add_f64s(value, above_v[k]);
+            value = simd.add_f64s(value, below_v[k]);
+            value = simd.add_f64s(value, simd.mul_f64s(rhs_v[k], h2v));
             value = simd.mul_f64s(value, qtr);
             if TRACK_ERROR {
-                $error = simd.max_f64s(
-                    $error,
-                    simd.abs_f64s(simd.sub_f64s(value, *center_v.get_unchecked(k))),
-                );
+                $error = simd.max_f64s($error, simd.abs_f64s(simd.sub_f64s(value, center_v[k])));
             }
-            *output_v.get_unchecked_mut(k) = value;
+            output_v[k] = value;
         }};
     }
 
@@ -149,25 +140,21 @@ unsafe fn jacobi_row<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
 
     for k in 0..left_tail.len() {
         let value = 0.25
-            * (*left_tail.get_unchecked(k)
-                + *right_tail.get_unchecked(k)
-                + *above_tail.get_unchecked(k)
-                + *below_tail.get_unchecked(k)
-                + h2 * *rhs_tail.get_unchecked(k));
+            * (left_tail[k] + right_tail[k] + above_tail[k] + below_tail[k] + h2 * rhs_tail[k]);
         if TRACK_ERROR {
-            let error = (value - *center_tail.get_unchecked(k)).abs();
+            let error = (value - center_tail[k]).abs();
             if error > local {
                 local = error;
             }
         }
-        *output_tail.get_unchecked_mut(k) = value;
+        output_tail[k] = value;
     }
 
     local
 }
 
 #[inline(always)]
-unsafe fn jacobi_sweep<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
+fn jacobi_sweep<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
     simd: S,
     u: &[f64],
     u_new: &mut [f64],
@@ -176,14 +163,7 @@ unsafe fn jacobi_sweep<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
 ) -> f64 {
     let mut update_error = 0.0_f64;
     for j in 1..N - 1 {
-        let local = jacobi_row::<S, N, TRACK_ERROR>(
-            simd,
-            u.as_ptr(),
-            u_new.as_mut_ptr(),
-            rhs.as_ptr(),
-            j,
-            h2,
-        );
+        let local = jacobi_row::<S, N, TRACK_ERROR>(simd, u, u_new, rhs, j, h2);
         if local > update_error {
             update_error = local;
         }
@@ -192,24 +172,21 @@ unsafe fn jacobi_sweep<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
 }
 
 #[inline(always)]
-unsafe fn jacobi_two_sweeps<S: pulp::Simd, const N: usize, const TRACK_SECOND: bool>(
+fn jacobi_two_sweeps<S: pulp::Simd, const N: usize, const TRACK_SECOND: bool>(
     simd: S,
     u: &mut [f64],
     tmp: &mut [f64],
     rhs: &[f64],
     h2: f64,
 ) -> f64 {
-    let u_ptr = u.as_mut_ptr();
-    let tmp_ptr = tmp.as_mut_ptr();
-    let rhs_ptr = rhs.as_ptr();
     let mut update_error = 0.0_f64;
 
-    jacobi_row::<S, N, false>(simd, u_ptr, tmp_ptr, rhs_ptr, 1, h2);
+    jacobi_row::<S, N, false>(simd, u, tmp, rhs, 1, h2);
     for j in 1..N - 1 {
         if j < N - 2 {
-            jacobi_row::<S, N, false>(simd, u_ptr, tmp_ptr, rhs_ptr, j + 1, h2);
+            jacobi_row::<S, N, false>(simd, u, tmp, rhs, j + 1, h2);
         }
-        let local = jacobi_row::<S, N, TRACK_SECOND>(simd, tmp_ptr, u_ptr, rhs_ptr, j, h2);
+        let local = jacobi_row::<S, N, TRACK_SECOND>(simd, tmp, u, rhs, j, h2);
         if local > update_error {
             update_error = local;
         }
@@ -270,9 +247,7 @@ mod tests {
 
             #[inline(always)]
             fn with_simd<S: pulp::Simd>(self, simd: S) -> Self::Output {
-                unsafe {
-                    jacobi_two_sweeps::<S, N, true>(simd, self.u, self.tmp, self.rhs, self.h2)
-                }
+                jacobi_two_sweeps::<S, N, true>(simd, self.u, self.tmp, self.rhs, self.h2)
             }
         }
 
@@ -306,9 +281,9 @@ fn jacobi_impl<S: pulp::Simd, const N: usize>(
         let iter = iterations + 2;
         let check_error = iter % 1000 == 0 || iter == maxiter;
         if check_error {
-            update_error = unsafe { jacobi_two_sweeps::<S, N, true>(simd, u, u_new, rhs, h2) };
+            update_error = jacobi_two_sweeps::<S, N, true>(simd, u, u_new, rhs, h2);
         } else {
-            unsafe { jacobi_two_sweeps::<S, N, false>(simd, u, u_new, rhs, h2) };
+            jacobi_two_sweeps::<S, N, false>(simd, u, u_new, rhs, h2);
         }
         iterations = iter;
 
@@ -322,7 +297,7 @@ fn jacobi_impl<S: pulp::Simd, const N: usize>(
 
     if iterations < maxiter {
         let iter = iterations + 1;
-        update_error = unsafe { jacobi_sweep::<S, N, true>(simd, u, u_new, rhs, h2) };
+        update_error = jacobi_sweep::<S, N, true>(simd, u, u_new, rhs, h2);
         std::mem::swap(u, u_new);
         iterations = iter;
         println!("iteration = {iter:6}, update error = {update_error:.6e}");
@@ -365,6 +340,15 @@ fn jacobi<const N: usize>(
     tol: f64,
     maxiter: usize,
 ) -> (usize, f64) {
+    assert!(
+        N >= 3,
+        "Jacobi grid must have at least three points per axis"
+    );
+    let expected_len = N.checked_mul(N).expect("Jacobi grid size overflow");
+    assert_eq!(u.len(), expected_len, "invalid solution buffer shape");
+    assert_eq!(u_new.len(), expected_len, "invalid work buffer shape");
+    assert_eq!(rhs.len(), expected_len, "invalid right-hand-side shape");
+
     pulp::Arch::new().dispatch(JacobiOp::<N> {
         u,
         u_new,
