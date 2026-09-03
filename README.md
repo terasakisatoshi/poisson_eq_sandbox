@@ -29,8 +29,6 @@ f(x,y)=2\pi^2\sin(\pi x)\sin(\pi y)
 である。
 
 格子点数は各方向 \(N=401\)、間隔は \(h=1/(N-1)\) である。
-`julia_sparse_cg/` と `rust_tenferro_sparse_cg/` は疎行列法の小規模例として
-\(N=101\) を使う。
 内部点は 5 点 Laplacian で離散化する。
 
 ## 解法

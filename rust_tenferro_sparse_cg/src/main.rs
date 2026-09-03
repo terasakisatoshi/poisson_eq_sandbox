@@ -18,7 +18,7 @@ use tenferro_cpu::CpuBackend;
 use tenferro_runtime::{TypedTensor, TypedTensorSessionOpsExt};
 use tenferro_tensor::BackendSessionHost;
 
-const N: usize = 101;
+const N: usize = 401;
 
 fn u_exact(x: f64, y: f64) -> f64 {
     (PI * x).sin() * (PI * y).sin()

@@ -75,7 +75,7 @@ function save_plot(path, coordinates, u, exact, error)
 end
 
 function main()
-    grid_size = 101
+    grid_size = 401
     relative_tolerance = 1e-10
     maximum_iterations = 100_000
 
