@@ -29,6 +29,8 @@ f(x,y)=2\pi^2\sin(\pi x)\sin(\pi y)
 である。
 
 格子点数は各方向 \(N=401\)、間隔は \(h=1/(N-1)\) である。
+`julia_sparse_cg/` と `rust_tenferro_sparse_cg/` は疎行列法の小規模例として
+\(N=101\) を使う。
 内部点は 5 点 Laplacian で離散化する。
 
 ## 解法
@@ -42,6 +44,10 @@ f(x,y)=2\pi^2\sin(\pi x)\sin(\pi y)
 5 点 Laplacian の厳密な逆であり、反復しない。
 実装は、内部点の奇関数延長に対する正規化なし FFT である。
 
+`julia_sparse_cg/` と `rust_tenferro_sparse_cg/` で CG が 1 反復で収束するのは、右辺に使う
+\(\sin(\pi x)\sin(\pi y)\) が 5 点差分 Laplacian の固有ベクトルだからである。
+任意の Poisson 問題で CG が常に 1 反復で収束するわけではない。
+
 格子点が \(N^2\) 個のとき、Jacobi の収束にはだいたい \(O(N^2)\) 回かかるので計算量は \(O(N^4)\) である。
 DST は \(O(N^2\log N)\) である。
 
@@ -53,7 +59,9 @@ DST は \(O(N^2\log N)\) である。
 | `julia_unsafe/` | Julia | Jacobi | `@inbounds`。バッファは入れ替える |
 | `fortran/` | Fortran | Jacobi | 既定では境界チェックなし（`julia_unsafe` 相当）。バッファはポインタの付け替え |
 | `julia_fft/` | Julia | DST-I | FFTW。比較のため FFTW と BLAS は 1 スレッド |
+| `julia_sparse_cg/` | Julia | 疎行列 CG | 内部点の 5 点 Laplacian を CSC 行列で構成し、`IterativeSolvers.cg` で解く |
 | `rust_tenferro/` | Rust | Jacobi | `Vec<f64>` の安全な添字。バッファは `swap`。tenferro は求解後の誤差だけ |
+| `rust_tenferro_sparse_cg/` | Rust | 疎行列 CG PoC | COO builder/import から固定 CSR pattern と tenferro values を構築し、共通の `LinearOperator` 上で CSR と matrix-free の CG を解く |
 | `rust_tenferro_opt/` | Rust | Jacobi | 格子は `TypedTensor` のまま。[tenferro-rs#1736](https://github.com/tensor4all/tenferro-rs/issues/1736) の列優先ホストビューで一度検証し、内側は軸 0 のレーンを回す |
 | `rust_hataori/` | Rust | Jacobi | `rust_tenferro` と同じステンシル。内部を 2×2 の四象限に分け、[Hataori](https://github.com/shinaoka/hataori-rs) の `map_in`（Rayon、`LocalMode::Outer`）で並列更新 |
 | `rust_ndarray/` | Rust | Jacobi | `ndarray` のスライスと `Zip` |
@@ -78,6 +86,7 @@ Julia はプロジェクトディレクトリを `--project` で指定する。
 julia --project=./julia ./julia/poisson.jl
 julia --project=./julia_unsafe ./julia_unsafe/poisson.jl
 julia --project=./julia_fft ./julia_fft/poisson.jl
+julia --project=./julia_sparse_cg ./julia_sparse_cg/poisson.jl
 ```
 
 初回は依存の取得が必要なら、先に `julia --project=<dir> -e 'using Pkg; Pkg.instantiate()'` を実行する。
@@ -87,6 +96,7 @@ Rust は各 crate のディレクトリでリリースビルドする。
 ```bash
 cargo run --release --manifest-path rust_ndarray/Cargo.toml
 cargo run --release --manifest-path rust_tenferro/Cargo.toml
+cargo run --release --manifest-path rust_tenferro_sparse_cg/Cargo.toml
 cargo run --release --manifest-path rust_tenferro_opt/Cargo.toml
 cargo run --release --manifest-path rust_unsafe/Cargo.toml
 cargo run --release --manifest-path rust_tenferro_fft/Cargo.toml

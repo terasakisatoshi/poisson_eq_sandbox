@@ -1,0 +1,17 @@
+[package]
+name = "poisson-sparse-cg"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tenferro-runtime = { version = "0.4", default-features = false }
+tenferro-cpu = { version = "0.4", default-features = false, features = ["cpu-faer"] }
+tenferro-tensor = { version = "0.4", default-features = false }
+thiserror = "2"
+plotters = { version = "0.3", default-features = false, features = [
+    "bitmap_backend",
+    "bitmap_encoder",
+    "surface_series",
+    "ttf",
+] }
