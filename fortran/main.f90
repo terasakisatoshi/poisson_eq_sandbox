@@ -14,11 +14,13 @@
 !
 !   f(x,y) = 2π² sin(πx) sin(πy)
 !
-! Same Jacobi stencil as julia_unsafe/poisson.jl. gfortran does not
-! insert bounds checks unless -fcheck=bounds is given, so -O3 is
-! already the @inbounds equivalent. -ffast-math is @fastmath.
-! Buffers are pointer-swapped instead of copied; both stay zero on
-! the Dirichlet boundary because only interior points are written.
+! Same Jacobi stencil as julia/poisson.jl. gfortran does not insert
+! bounds checks unless -fcheck=bounds is given, so -O3 is already the
+! @inbounds equivalent. Buffers are pointer-swapped instead of copied;
+! both stay zero on the Dirichlet boundary because only interior points
+! are written. The update-width reduction and the progress line are
+! confined to every 1000th sweep (as in julia/ and cxx/), so the hot
+! sweeps stay free of the reduction.
 ! ------------------------------------------------------------
 
 program poisson
@@ -28,6 +30,7 @@ program poisson
   integer, parameter :: n = 401
   real(dp), parameter :: tol = 1.0e-10_dp
   integer, parameter :: maxiter = 100000
+  integer, parameter :: report_interval = 1000
   real(dp), parameter :: pi = 4.0_dp * atan(1.0_dp)
 
   real(dp) :: h, duration, update_error, max_error, l2_error
@@ -107,8 +110,9 @@ contains
     integer, intent(out) :: iterations
     real(dp), intent(out) :: update_error
 
-    integer :: nloc, iter, i, j
-    real(dp) :: h2, val
+    integer :: nloc, iter
+    real(dp) :: h2
+    logical :: report
     real(dp), pointer, contiguous :: tmp(:, :)
 
     nloc = size(u, 1)
@@ -117,31 +121,69 @@ contains
     iterations = 0
 
     do iter = 1, maxiter
-      update_error = 0.0_dp
+      report = (mod(iter, report_interval) == 0) .or. (iter == maxiter)
 
-      ! Interior points only.
-      ! Boundary points remain zero (Dirichlet).
-      do j = 2, nloc - 1
-        do i = 2, nloc - 1
-          val = 0.25_dp * (u(i + 1, j) + u(i - 1, j) + u(i, j + 1) + u(i, j - 1) + &
-                           h2 * rhs(i, j))
-          update_error = max(update_error, abs(val - u(i, j)))
-          u_new(i, j) = val
-        end do
-      end do
+      if (report) then
+        update_error = sweep_track(u, u_new, rhs, h2, nloc)
+      else
+        call sweep_plain(u, u_new, rhs, h2, nloc)
+      end if
 
       tmp => u
       u => u_new
       u_new => tmp
       iterations = iter
 
-      if (mod(iter, 1000) == 0) then
+      if (report) then
         write (*, '(a, i6, a, es15.6)') 'iteration = ', iter, ', update error = ', update_error
+        if (update_error < tol) exit
       end if
-
-      if (update_error < tol) exit
     end do
   end subroutine jacobi
+
+  ! One Jacobi sweep that also reduces the update width. Only called every
+  ! `report_interval` iterations, so the hot sweeps stay reduction-free.
+  function sweep_track(u, u_new, rhs, h2, nloc) result(update_error)
+    real(dp), pointer, contiguous, intent(inout) :: u(:, :), u_new(:, :)
+    real(dp), intent(in), contiguous :: rhs(:, :)
+    real(dp), intent(in) :: h2
+    integer, intent(in) :: nloc
+    real(dp) :: update_error, val
+    integer :: i, j
+
+    update_error = 0.0_dp
+
+    ! Interior points only.
+    ! Boundary points remain zero (Dirichlet).
+    do j = 2, nloc - 1
+      do i = 2, nloc - 1
+        val = 0.25_dp * (u(i + 1, j) + u(i - 1, j) + u(i, j + 1) + u(i, j - 1) + &
+                         h2 * rhs(i, j))
+        update_error = max(update_error, abs(val - u(i, j)))
+        u_new(i, j) = val
+      end do
+    end do
+  end function sweep_track
+
+  ! Reduction-free Jacobi sweep for the non-reported iterations.
+  subroutine sweep_plain(u, u_new, rhs, h2, nloc)
+    real(dp), pointer, contiguous, intent(inout) :: u(:, :), u_new(:, :)
+    real(dp), intent(in), contiguous :: rhs(:, :)
+    real(dp), intent(in) :: h2
+    integer, intent(in) :: nloc
+    real(dp) :: val
+    integer :: i, j
+
+    ! Interior points only.
+    ! Boundary points remain zero (Dirichlet).
+    do j = 2, nloc - 1
+      do i = 2, nloc - 1
+        val = 0.25_dp * (u(i + 1, j) + u(i - 1, j) + u(i, j + 1) + u(i, j - 1) + &
+                         h2 * rhs(i, j))
+        u_new(i, j) = val
+      end do
+    end do
+  end subroutine sweep_plain
 
   subroutine save_plot(path, u, ue, err, n, max_error)
     character(len=*), intent(in) :: path

@@ -1,7 +1,7 @@
 //! 2-D Poisson equation on the unit square, solved by Jacobi iteration.
 //!
-//! Same problem and Jacobi stencil as `julia_unsafe/poisson.jl`. The portable
-//! `pulp` hot loop keeps four independent SIMD chains; runtime dispatch picks
+//! Same problem and Jacobi stencil as `julia/poisson.jl`. The portable
+//! `pulp` hot loop keeps eight independent SIMD chains; runtime dispatch picks
 //! NEON, an available x86 SIMD level, or scalar execution. Two sweeps are
 //! pipelined by row so intermediate rows are consumed while still hot in
 //! cache. The convergence reduction is evaluated every 1000 sweeps.
@@ -102,6 +102,10 @@ fn jacobi_row<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
     let mut e1 = zero;
     let mut e2 = zero;
     let mut e3 = zero;
+    let mut e4 = zero;
+    let mut e5 = zero;
+    let mut e6 = zero;
+    let mut e7 = zero;
 
     macro_rules! point_vector {
         ($k:expr, $error:ident) => {{
@@ -118,22 +122,26 @@ fn jacobi_row<S: pulp::Simd, const N: usize, const TRACK_ERROR: bool>(
         }};
     }
 
-    let vector_groups = left_v.len() / 4;
+    let vector_groups = left_v.len() / 8;
     for group in 0..vector_groups {
-        let k = group * 4;
+        let k = group * 8;
         point_vector!(k, e0);
         point_vector!(k + 1, e1);
         point_vector!(k + 2, e2);
         point_vector!(k + 3, e3);
+        point_vector!(k + 4, e4);
+        point_vector!(k + 5, e5);
+        point_vector!(k + 6, e6);
+        point_vector!(k + 7, e7);
     }
-    for k in vector_groups * 4..left_v.len() {
+    for k in vector_groups * 8..left_v.len() {
         point_vector!(k, e0);
     }
 
     let mut local = if TRACK_ERROR {
-        let e01 = simd.max_f64s(e0, e1);
-        let e23 = simd.max_f64s(e2, e3);
-        simd.reduce_max_f64s(simd.max_f64s(e01, e23))
+        let ea = simd.max_f64s(simd.max_f64s(e0, e1), simd.max_f64s(e2, e3));
+        let eb = simd.max_f64s(simd.max_f64s(e4, e5), simd.max_f64s(e6, e7));
+        simd.reduce_max_f64s(simd.max_f64s(ea, eb))
     } else {
         0.0
     };

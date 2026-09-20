@@ -53,9 +53,10 @@ DST は \(O(N^2\log N)\) である。
 
 | パス | 言語 | 解法 | ホットパス |
 |---|---|---|---|
-| `julia/` | Julia | Jacobi | 境界チェック付きの二重ループ。毎反復 `u .= u_new` でコピーする |
-| `julia_unsafe/` | Julia | Jacobi | `@inbounds`。バッファは入れ替える |
-| `fortran/` | Fortran | Jacobi | 既定では境界チェックなし（`julia_unsafe` 相当）。バッファはポインタの付け替え |
+| `julia/` | Julia | Jacobi | ホットループを `LoopVectorization.@turbo` で展開。バッファは入れ替える。更新幅の還元と表示は1000反復ごと |
+| `julia_unsafe/` | Julia | Jacobi | 生ポインタ + `@simd`。8反復の列方向 wavefront でキャッシュを再利用。[検証・計測手順](julia_unsafe/README.md) |
+| `cxx/` | C++23 | Jacobi | 値型の `Grid` を `operator()(i, j)` で添字。バッファは O(1) swap。図は Fortran と同じ自前 PNG エンコード |
+| `fortran/` | Fortran | Jacobi | 既定では境界チェックなし（`julia` 相当）。バッファはポインタの付け替え。更新幅の還元は1000反復ごと |
 | `julia_fft/` | Julia | DST-I | FFTW。比較のため FFTW と BLAS は 1 スレッド |
 | `julia_sparse_cg/` | Julia | 疎行列 CG | 内部点の 5 点 Laplacian を CSC 行列で構成し、`IterativeSolvers.cg` で解く |
 | `rust_tenferro/` | Rust | Jacobi | `Vec<f64>` の安全な添字。バッファは `swap`。tenferro は求解後の誤差だけ |
@@ -63,7 +64,7 @@ DST は \(O(N^2\log N)\) である。
 | `rust_tenferro_opt/` | Rust | Jacobi | 格子は `TypedTensor` のまま。[tenferro-rs#1736](https://github.com/tensor4all/tenferro-rs/issues/1736) の列優先ホストビューで一度検証し、内側は軸 0 のレーンを回す |
 | `rust_hataori/` | Rust | Jacobi | `rust_tenferro` と同じステンシル。内部を 2×2 の四象限に分け、[Hataori](https://github.com/shinaoka/hataori-rs) の `map_in`（Rayon、`LocalMode::Outer`）で並列更新 |
 | `rust_ndarray/` | Rust | Jacobi | `ndarray` のスライスと `Zip` |
-| `rust_unsafe/` | Rust | Jacobi | `pulp` でNEON/x86 SIMD/Scalarへdispatch。4本の独立SIMDチェーンと2反復の行パイプライン。更新幅は1000反復ごとに還元 |
+| `rust_unsafe/` | Rust | Jacobi | `pulp` でNEON/x86 SIMD/Scalarへdispatch。8本の独立SIMDチェーンと2反復の行パイプライン。更新幅は1000反復ごとに還元 |
 | `rust_tenferro_fft/` | Rust | DST-I | 奇関数延長の軸方向 FFT（tenferro-fft） |
 
 `rust_tenferro/` と `rust_hataori/` は、求解中は `Vec<f64>` を回し、誤差の `sub` / `abs` / `reduce_sum` に tenferro を使う。
@@ -75,6 +76,26 @@ DST は \(O(N^2\log N)\) である。
 
 gfortran は `-fcheck=bounds` を付けない限り添字検査を入れない。
 したがって `gfortran -O3` は、すでに Julia の `@inbounds` と同じ前提である。
+C++ の `g++ -O3` も同様で、`std::vector::operator[]` に添字検査は入らない。
+
+## 計測
+
+以下は `julia_unsafe/` の temporal blocking 導入前の計測値。現在の実装の比較は `julia --project=julia_unsafe julia_unsafe/benchmark.jl 5` で再現できる。
+
+単一スレッドの Jacobi 実装を同じ条件（N=401、10万反復）で計測した。
+Apple M4 上で各実装を交互に実行し、最速値を示す。
+熱・負荷で絶対値は大きく揺れる（同セッションでも後半は 20–40% 遅くなることがある）ため、同一セッション内の相対比較に留める。
+
+| 実装 | 1回目 | 2回目 | 3回目 | 最速 | ホットパス |
+|---|---|---|---|---|---|
+| `cxx/` | 3.73 | 3.97 | 4.49 | **3.73s** | 値型 `Grid` と O(1) swap |
+| `julia_unsafe/` | 3.86 | 4.09 | 4.84 | **3.86s** | 生ポインタ + `@simd` |
+| `julia/` | 4.17 | 4.29 | 4.50 | **4.17s** | `@inbounds` 2D + `@turbo`（LoopVectorization） |
+| `rust_unsafe/` | 4.44 | 4.60 | 5.07 | **4.44s** | pulp SIMD + 8チェーン + 2反復パイプライン |
+| `fortran/` | 4.53 | 4.97 | 5.29 | **4.53s** | ポインタの付け替え |
+
+計測区間は求解ループのみで、配列確保・誤差計算・作図は含まない。
+数値は全実装で一致する（`max error = 4.575793e-02`、`L2 error = 1.142521e-03`）。
 
 ## 実行
 
@@ -88,6 +109,9 @@ julia --project=./julia_sparse_cg ./julia_sparse_cg/poisson.jl
 ```
 
 初回は依存の取得が必要なら、先に `julia --project=<dir> -e 'using Pkg; Pkg.instantiate()'` を実行する。
+
+`julia_unsafe/poisson.jl` は `unsafe_load` を使う自己完結の Jacobi 実装。`runtests.jl` と `benchmark.jl` で検証・比較できる。
+`julia/` のホットループは `LoopVectorization` の `@turbo` で展開する（`julia/Project.toml` に依存を追加済み）。`@turbo` は生ポインタの `unsafe_load` を扱えないため、`julia_unsafe/` には適用していない。
 
 Rust は各 crate のディレクトリでリリースビルドする。
 
@@ -108,6 +132,13 @@ Fortran は `gfortran -O3` でビルドする。
 ```bash
 ./fortran/build.sh
 ./fortran/poisson
+```
+
+C++ は `g++ -O3 -std=c++23` でビルドする。
+
+```bash
+./cxx/build.sh
+./cxx/poisson
 ```
 
 求解時間は標準出力の `time =` 行である。

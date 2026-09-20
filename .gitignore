@@ -1,4 +1,5 @@
 target/
 fortran/poisson
+cxx/poisson
 *.png
 .DS_Store
