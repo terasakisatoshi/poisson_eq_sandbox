@@ -31,7 +31,7 @@ end
     redirect_stdout(devnull) do
         # Small grids exercise the wavefront's overlapping start/end regions;
         # odd sizes exercise SIMD tails, and counts straddle reporting points.
-        for n in (3, 4, 7, 10, 17, 32, 401)
+        for n in (3:36..., 401)
             counts = n == 401 ? (9, 18) : (0, 1, 2, 7, 8, 9, 10, 17, 999, 1000, 1001, 2003)
             for count in counts
                 u = randn(rng, n, n)

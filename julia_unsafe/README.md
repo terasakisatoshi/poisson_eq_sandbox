@@ -3,7 +3,9 @@
 The solver keeps the original single-threaded Jacobi method, stencil addition
 order, Float64 arithmetic, fixed boundaries, and convergence checks. It advances
 up to eight sweeps along a column wavefront through the same two solution buffers.
-This reuses nearby columns in cache before moving on. The products `h² * rhs` are
+Pairs of stages also share intermediate SIMD values in registers, using
+16-point blocks and 8/4/2/1-point tails. This reuses nearby columns in cache
+before moving on. The products `h² * rhs` are
 computed once per solve; their Float64 rounding is unchanged. No fast-math,
 explicit FMA, additional solver dependency, or problem-specific shortcut is used.
 
@@ -27,6 +29,7 @@ From the repository root:
 ```sh
 julia --project=julia_unsafe julia_unsafe/runtests.jl
 julia --project=julia_unsafe julia_unsafe/benchmark.jl 5
+julia --project=julia_unsafe julia_unsafe/inspect_native.jl /tmp/poisson-native
 julia --project=julia_unsafe julia_unsafe/poisson.jl
 ```
 
@@ -49,18 +52,29 @@ likewise excludes compilation and plotting. These are solver times, not process
 startup or end-to-end times. Host load and thermal state can affect small timing
 differences; use repeated measurements on the target machine.
 
-On this Apple arm64 host with Julia 1.13.0, five alternating runs produced:
+The machine-code comparison and latest measurements are recorded in
+[native_analysis.md](native_analysis.md). `inspect_native.jl` uses `@code_native`
+with instruction encodings and disassembles the unchanged C++ executable.
+It also records the compiler/CPU versions and vector-load LLVM IR.
 
-| Round | Julia (s) | C++ (s) |
-|---|---:|---:|
-| 1 | 3.654119 | 3.705212 |
-| 2 | 3.634631 | 3.710242 |
-| 3 | 3.631475 | 3.722405 |
-| 4 | 3.642505 | 3.726362 |
-| 5 | 3.860469 | 3.749110 |
-| Median | 3.642505 | 3.722405 |
+On an Apple M4 with Julia 1.13.0 and Apple clang 21.0.0, five runs in rotating
+order produced the following solver times. “Before” is the eight-stage wavefront
+implementation before SIMD stage fusion; all Julia measurements were warmed up.
 
-The median solver time was 2.1% lower (1.022× speedup). One of five Julia runs
-was slower than C++, so this is a small measured improvement, not a guarantee
-that Julia wins every run. The original Julia solver took about 4.00 s in an
-initial, compilation-inclusive run; that figure is not a matched warm benchmark.
+| Round | Julia before (s) | Julia after (s) | C++ (s) |
+|---|---:|---:|---:|
+| 1 | 4.699281 | 3.385435 | 3.846381 |
+| 2 | 3.637510 | 3.504544 | 3.913423 |
+| 3 | 4.079874 | 3.818548 | 3.695129 |
+| 4 | 3.846951 | 3.413451 | 3.707956 |
+| 5 | 3.633087 | 3.517270 | 3.708979 |
+| Median | 3.846951 | 3.504544 | 3.708979 |
+| Minimum | 3.633087 | 3.385435 | 3.695129 |
+
+The new median was 8.9% lower than the previous Julia implementation and 5.5%
+lower than C++. One run was slower than C++, and the first baseline measurement
+was an outlier, so these timings should not be treated as universal speedups.
+All five full-grid comparisons with the previous Julia implementation were
+bitwise identical, including the final update width and iteration count.
+The unit suite passes 1,241 checks covering every SIMD remainder on grids 3–36
+as well as the 401-point grid.
